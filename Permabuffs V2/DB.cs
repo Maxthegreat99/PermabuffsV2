@@ -1,4 +1,4 @@
-﻿using Mono.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
@@ -35,7 +35,7 @@ namespace Permabuffs_V2
 
 				case "sqlite":
 					string sql = Path.Combine(TShock.SavePath, "Permabuffs.sqlite");
-					db = new SqliteConnection(string.Format("uri=file://{0},Version=3", sql));
+					db = new SqliteConnection(string.Format("Data Source={0}", sql));
 					break;
 
 			}
