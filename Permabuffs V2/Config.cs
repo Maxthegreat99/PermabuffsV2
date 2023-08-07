@@ -4,6 +4,7 @@ using System.IO;
 
 namespace Permabuffs_V2
 {
+
 	public class BuffGroup
 	{
 		public string groupName;
@@ -19,7 +20,9 @@ namespace Permabuffs_V2
 
 	public class Config
 	{
-		public BuffGroup[] buffgroups = new BuffGroup[]
+        public List<int> GlobalBuffs = new List<int>();
+
+        public BuffGroup[] buffgroups = new BuffGroup[]
 		{
             //34 - Merfolk - Seems broken when used by command.
             new BuffGroup()
@@ -295,7 +298,7 @@ namespace Permabuffs_V2
                 320 //Sparkle Slime
 
 				}
-			}
+			}            
 		};
 
 		public RegionBuff[] regionbuffs = new RegionBuff[]
@@ -303,7 +306,7 @@ namespace Permabuffs_V2
 			new RegionBuff() { regionName = "spawn", buffs = new Dictionary<int,int>() { {11, 10}}}
 		};
 
-		public void Write(string path)
+        public void Write(string path)
 		{
 			File.WriteAllText(path, JsonConvert.SerializeObject(this, Formatting.Indented));
 		}

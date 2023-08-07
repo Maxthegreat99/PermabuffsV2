@@ -1,6 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
-using MySql.Data.MySqlClient;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
@@ -24,7 +22,6 @@ namespace Permabuffs_V2
 		public override Version Version { get { return Assembly.GetExecutingAssembly().GetName().Version; } }
 
 		private static Timer update;
-		private static List<int> globalbuffs = new List<int>();
 		private static List<RegionBuff> regionbuffs = new List<RegionBuff>();
 		private static Dictionary<int, List<string>> hasAnnounced = new Dictionary<int, List<string>>();
 
@@ -86,8 +83,8 @@ namespace Permabuffs_V2
 			if (TShock.Players[args.Who] == null)
 				return;
 
-			if (globalbuffs.Count > 0)
-				TShock.Players[args.Who].SendInfoMessage("This server has the following global permabuffs active: {0}", string.Join(", ", globalbuffs.Select(p => TShock.Utils.GetBuffName(p))));
+			if (config.GlobalBuffs.Count > 0)
+				TShock.Players[args.Who].SendInfoMessage("This server has the following global permabuffs active: {0}", string.Join(", ", config.GlobalBuffs.Select(p => TShock.Utils.GetBuffName(p))));
 
 			if (!hasAnnounced.ContainsKey(args.Who))
 				hasAnnounced.Add(args.Who, new List<string>());
@@ -182,7 +179,7 @@ namespace Permabuffs_V2
 				if (TShock.Players[i] == null)
 					continue;
 
-				foreach (int buff in globalbuffs)
+				foreach (int buff in config.GlobalBuffs)
 				{
 					TShock.Players[i].SetBuff(buff, 18000);
 				}
@@ -225,11 +222,51 @@ namespace Permabuffs_V2
 
 			if (args.Parameters.Count == 0)
 			{
-				args.Player.SendErrorMessage("Invalid syntax: {0}permabuff <buff name or ID>", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
-				return;
+                args.Player.SendErrorMessage("Invalid syntax:");
+                args.Player.SendErrorMessage("{0}permabuff <buff name or ID>", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+                args.Player.SendErrorMessage("{0}permabuff -g <buff group>", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+                return;
 			}
 
-			string buff = string.Join(" ", args.Parameters);
+			// in case the player has clearedbuffs before hand
+			if (!DB.PlayerBuffs.ContainsKey(args.Player.Account.ID) && !DB.LoadUserBuffs(args.Player.Account.ID))
+			{
+				DB.AddNewUser(args.Player.Account.ID);
+			}
+
+
+            if (args.Parameters.Count == 2)
+            {
+                if (args.Parameters[0] != "-g")
+                {
+                    args.Player.SendErrorMessage("Invalid syntax:");
+                    args.Player.SendErrorMessage("{0}permabuff <buff name or ID>", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+                    args.Player.SendErrorMessage("{0}permabuff -g <buff group>", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+					return;
+                }
+
+                else if (!availableBuffGroups.Any(e => e.groupName.Equals(args.Parameters[1], StringComparison.CurrentCultureIgnoreCase)))
+                {
+                    args.Player.SendErrorMessage("No buffgroups matched your query!");
+                    return;
+                }
+
+                TSPlayer player = args.Player;
+                int id = args.Player.Account.ID;
+
+                foreach (var _buff in availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[1], StringComparison.CurrentCultureIgnoreCase)).buffIDs)
+                {
+                    if (!DB.PlayerBuffs[id].bufflist.Contains(_buff) && _buff.IsPermanent())
+                        DB.PlayerBuffs[id].bufflist.Add(_buff);
+                }
+                DB.UpdatePlayerBuffs(id, DB.PlayerBuffs[id].bufflist);
+
+                args.Player.SendSuccessMessage($"Successfully permabuffed yourself with all of the buffs in the group {args.Parameters[1]}!");
+
+				return;
+            }
+
+            string buff = string.Join(" ", args.Parameters);
 
 			// Get buff type by name
 			if (!int.TryParse(args.Parameters[0], out bufftype))
@@ -243,15 +280,19 @@ namespace Permabuffs_V2
 				}
 				else if (bufftypelist.Count > 1)
 				{
-                    
+
 					args.Player.SendMultipleMatchError(bufftypelist.Select(p => TShock.Utils.GetBuffName(p)));
 					return;
 				}
 				else
 					bufftype = bufftypelist[0];
 			}
-			else if (bufftype > Main.maxBuffTypes || bufftype < 1) // Buff ID is not valid (less than 1 or higher than 206 (1.3.5.3)).
+			else if (bufftype > Terraria.ID.BuffID.Count || bufftype < 1)
+			{  // Buff ID is not valid 
 				args.Player.SendErrorMessage("Invalid buff ID!");
+
+				return;
+			}
 
 
 			int playerid = args.Player.Account.ID;
@@ -365,14 +406,17 @@ namespace Permabuffs_V2
 					}
 					else if (bufftypelist.Count > 1)
 					{
-						args.Player.SendMultipleMatchError( bufftypelist.Select(p => TShock.Utils.GetBuffName(p)));
+						args.Player.SendMultipleMatchError(bufftypelist.Select(p => TShock.Utils.GetBuffName(p)));
 						return;
 					}
 					else
 						bufftype = bufftypelist[0];
 				}
-				else if (bufftype > Main.maxBuffTypes || bufftype < 1) // Buff ID is not valid (less than 1 or higher than 192 (1.3.1)).
+				else if (bufftype > Terraria.ID.BuffID.Count || bufftype < 1) // Buff ID is not valid 
+                {  
 					args.Player.SendErrorMessage("Invalid buff ID!");
+					return;
+				}
 
 				//Removes all groups where the buff isn't included, leaving only a list of groups where player has access AND contains the buff
 				availableBuffGroups.RemoveAll(e => !e.buffIDs.Contains(bufftype));
@@ -383,7 +427,14 @@ namespace Permabuffs_V2
 					return;
 				}
 
-				if (DB.PlayerBuffs[playerid].bufflist.Contains(bufftype))
+                // in case the player has clearedbuffs before hand
+                if (!DB.PlayerBuffs.ContainsKey(playerid) && !DB.LoadUserBuffs(playerid))
+                {
+                    DB.AddNewUser(playerid);
+                }
+
+
+                if (DB.PlayerBuffs[playerid].bufflist.Contains(bufftype))
 				{
 					DB.PlayerBuffs[playerid].bufflist.Remove(bufftype);
 					DB.UpdatePlayerBuffs(playerid, DB.PlayerBuffs[playerid].bufflist);
@@ -415,6 +466,7 @@ namespace Permabuffs_V2
 					args.Player.SendErrorMessage("Invalid syntax:");
 					args.Player.SendErrorMessage("{0}gpermabuff <buff name or ID> <player>", TShock.Config.Settings.CommandSpecifier);
 					args.Player.SendErrorMessage("{0}gpermabuff -g <buff group> <player>", TShock.Config.Settings.CommandSpecifier);
+					return;
 				}
 
 				var matchedPlayers = TShockAPI.TSPlayer.FindByNameOrID(args.Parameters[2]);
@@ -437,6 +489,7 @@ namespace Permabuffs_V2
 				else if (!availableBuffGroups.Any(e => e.groupName.Equals(args.Parameters[1], StringComparison.CurrentCultureIgnoreCase)))
 				{
 					args.Player.SendErrorMessage("No buffgroups matched your query!");
+					return;
 				}
 
 				TSPlayer player = matchedPlayers[0];
@@ -472,9 +525,10 @@ namespace Permabuffs_V2
 		{
 			//regionbuff <add/del> <region> <buff>
 
-			if (args.Parameters.Count < 3 || args.Parameters.Count > 4)
+			if (args.Parameters.Count < 3 || args.Parameters.Count > 5)
 			{
-				args.Player.SendErrorMessage("Invalid Syntax: {0}regionbuff <add/del> <region name> <buff name/ID> [duration]", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+				args.Player.SendErrorMessage("Invalid Syntax:");
+				args.Player.SendErrorMessage("{0}regionbuff <add/del> <region name> <buff name/ID> [duration]\n{0}regionbuff -g <add/del> <region name> <buff group name> [duration]", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
 				return;
 			}
 
@@ -485,7 +539,7 @@ namespace Permabuffs_V2
 				string buffinput = args.Parameters[2];
 				if (args.Parameters.Count != 4)
 				{
-					args.Player.SendErrorMessage("Invalid Syntax: {0}regionbuff <add/del> <region name> <buff name/ID> [duration]", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+					args.Player.SendErrorMessage("Invalid Syntax: {0}regionbuff add <region name> <buff name/ID> [duration]", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
 					return;
 				}
 				string durationinput = args.Parameters[3];
@@ -509,14 +563,14 @@ namespace Permabuffs_V2
 
 					if (bufflist.Count > 1)
 					{
-						args.Player.SendMultipleMatchError( bufflist.Select(p => TShock.Utils.GetBuffName(p)));
+						args.Player.SendMultipleMatchError(bufflist.Select(p => TShock.Utils.GetBuffName(p)));
 						return;
 					}
 
 					bufftype = bufflist[0];
 				}
 
-				if (bufftype < 0 || bufftype > Main.maxBuffTypes)
+				if (bufftype < 0 || bufftype > Terraria.ID.BuffID.Count)
 				{
 					args.Player.SendErrorMessage("Invalid buff ID: {0}", bufftype.ToString());
 					return;
@@ -570,6 +624,12 @@ namespace Permabuffs_V2
 				string buffinput = args.Parameters[2];
 				int bufftype = -1;
 
+				if (args.Parameters.Count != 3)
+				{
+					args.Player.SendErrorMessage("Invalid Syntax: {0}regionbuff del <region name> <buff name/ID>", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+					return;
+				}
+
 				if (region == null)
 				{
 					args.Player.SendErrorMessage("Invalid region: {0}", regionname);
@@ -588,14 +648,14 @@ namespace Permabuffs_V2
 
 					if (bufflist.Count > 1)
 					{
-						args.Player.SendMultipleMatchError( bufflist.Select(p => TShock.Utils.GetBuffName(p)));
+						args.Player.SendMultipleMatchError(bufflist.Select(p => TShock.Utils.GetBuffName(p)));
 						return;
 					}
 
 					bufftype = bufflist[0];
 				}
 
-				if (bufftype < 0 || bufftype > Main.maxBuffTypes)
+				if (bufftype < 0 || bufftype > Terraria.ID.BuffID.Count)
 				{
 					args.Player.SendErrorMessage("Invalid buff ID: {0}", bufftype.ToString());
 					return;
@@ -624,18 +684,174 @@ namespace Permabuffs_V2
 					return;
 				}
 			}
+			if (args.Parameters[0].Equals("-g", StringComparison.CurrentCultureIgnoreCase))
+			{
+				string regionname = args.Parameters[2];
+				Region region = TShock.Regions.GetRegionByName(regionname);
+				List<BuffGroup> availableBuffGroups = config.buffgroups.Where(e => args.Player.HasPermission($"pb.{e.groupPerm}") || args.Player.HasPermission("pb.useall")).ToList();
 
-			args.Player.SendErrorMessage("Invalid syntax: {0}regionbuff <add/del> <region name> <buff name/ID>", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+				if (args.Parameters.Count != 5 && args.Parameters.Count != 4)
+				{
+					args.Player.SendErrorMessage("Invalid Syntax: {0}regionbuff -g <add/del> <region name> <buff group name> [duration]", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+					return;
+				}
+
+				if (region == null)
+				{
+					args.Player.SendErrorMessage("Invalid region: {0}", regionname);
+					return;
+				}
+				if (!availableBuffGroups.Any(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)))
+				{
+					args.Player.SendErrorMessage("No buffgroups matched your query!");
+					return;
+				}
+
+				if (args.Parameters[1].Equals("del", StringComparison.CurrentCultureIgnoreCase) || args.Parameters[0].Equals("delete", StringComparison.CurrentCultureIgnoreCase))
+				{
+
+					if (args.Parameters.Count != 4)
+					{
+						args.Player.SendErrorMessage("Invalid Syntax: {0}regionbuff -g del <region name> <buff group name>", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+						return;
+					}
+
+
+					int deletedBuffs = 0;
+					for (int i = 0; i < config.regionbuffs.Length; i++)
+					{
+						if (config.regionbuffs[i].regionName == region.Name)
+						{
+
+							foreach (var buff in availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).buffIDs)
+							{
+								if (config.regionbuffs[i].buffs.Keys.Contains(buff))
+								{
+									config.regionbuffs[i].buffs.Remove(buff);
+									deletedBuffs++;
+									continue;
+								}
+								else
+								{
+									continue;
+								}
+							}
+							if (deletedBuffs == 0)
+							{
+								args.Player.SendErrorMessage("The {0} region already has no buffs from the {1} buff group to delete!", region.Name, availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).groupName);
+								return;
+							}
+							args.Player.SendSuccessMessage("successfully deleted {0} buffs that were part of the {1} buff group from the {2} region!",
+														   deletedBuffs,
+														   availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).groupName,
+														   region.Name
+														   );
+							config.Write(configPath);
+						}
+					}
+
+					return;
+				}
+
+				if (args.Parameters[1].Equals("add", StringComparison.CurrentCultureIgnoreCase))
+				{
+
+					if (args.Parameters.Count != 5)
+					{
+						args.Player.SendErrorMessage("Invalid Syntax: {0}regionbuff -g add <region name> <buff group name> [duration]", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+						return;
+					}
+
+					string durationinput = args.Parameters[4];
+
+					int duration = -1;
+
+					if (!int.TryParse(durationinput, out duration) || (duration < 1 || duration > 540))
+					{
+						args.Player.SendErrorMessage("Invalid duration!");
+						return;
+					}
+
+					bool found = false;
+					int buffsFound = 0;
+					for (int i = 0; i < config.regionbuffs.Length; i++)
+					{
+						if (config.regionbuffs[i].regionName == region.Name)
+						{
+							found = true;
+
+							foreach (var buff in availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).buffIDs)
+							{
+								if (config.regionbuffs[i].buffs.Keys.Contains(buff))
+								{
+									buffsFound++;
+									continue;
+								}
+								else
+								{
+									config.regionbuffs[i].buffs.Add(buff, duration);
+									continue;
+								}
+							}
+							if (buffsFound == availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).buffIDs.Count)
+							{
+								args.Player.SendErrorMessage("The {0} region already has every buffs from the {1} buff group added!", region.Name, availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).groupName);
+								return;
+							}
+							args.Player.SendSuccessMessage("successfully Added {0} buffs from the {1} buff group to the {2} region each with a duration of {3} seconds!",
+														   availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).buffIDs.Count - buffsFound,
+														   availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).groupName,
+														   region.Name, duration.ToString());
+							config.Write(configPath);
+						}
+					}
+					if (!found)
+					{
+						List<RegionBuff> temp = config.regionbuffs.ToList();
+						temp.Add(new RegionBuff() { regionName = region.Name, buffs = new() });
+						foreach (var buff in availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).buffIDs)
+						{
+							if (temp.First(e => e.regionName.Equals(region.Name)).buffs.Keys.Contains(buff))
+							{
+								buffsFound++;
+								continue;
+							}
+							else
+							{
+								temp.First(e => e.regionName.Equals(region.Name)).buffs.Add(buff, duration);
+								continue;
+							}
+						}
+						config.regionbuffs = temp.ToArray();
+						args.Player.SendSuccessMessage("successfully Added {0} buff from the {1} buff group to the {2} region each with a duration of {3} seconds!",
+							   availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).buffIDs.Count - buffsFound,
+							   availableBuffGroups.First(e => e.groupName.Equals(args.Parameters[3], StringComparison.CurrentCultureIgnoreCase)).groupName,
+							   region.Name, duration.ToString());
+						config.Write(configPath);
+						return;
+					}
+				}
+
+
+			}
+
+			args.Player.SendErrorMessage("Invalid Syntax:");
+			args.Player.SendErrorMessage("{0}regionbuff <add/del> <region name> <buff name/ID> [duration]\n{0}regionbuff -g <add/del> <region name> <buff group name> [duration]", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
 		}
 
 		private void PBGlobal(CommandArgs args)
 		{
 			if (args.Parameters.Count == 0)
 			{
-				args.Player.SendErrorMessage("Invalid Syntax: {0}globalbuff <buff name>", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+				args.Player.SendErrorMessage("Invalid Syntax: {0}globalbuff <buff name/clearall>", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
 				return;
 			}
-
+			if (string.Equals(args.Parameters[0], "clearall", StringComparison.CurrentCultureIgnoreCase)){
+				config.GlobalBuffs = new List<int>();
+				config.Write(configPath);
+                args.Player.SendSuccessMessage("Cleared all global buffs!");
+                return;
+			}
 			string buff = string.Join(" ", args.Parameters);
 
 			if (!int.TryParse(args.Parameters[0], out int bufftype))
@@ -656,56 +872,195 @@ namespace Permabuffs_V2
 					bufftype = bufftypelist[0];
 			}
 
-			if (bufftype > Main.maxBuffTypes || bufftype < 1) // Buff ID is not valid (less than 1 or higher than 190).
+			if (bufftype > Terraria.ID.BuffID.Count || bufftype < 1)
+			{  // Buff ID is not valid
 				args.Player.SendErrorMessage("Invalid buff ID!");
+				return;
+			}
 
 			if (!bufftype.IsPermanent() || !config.buffgroups.Any(e => e.buffIDs.Contains(bufftype)))
 				args.Player.SendErrorMessage("This buff is not available as a global buff!");
-			else if (globalbuffs.Contains(bufftype))
+			else if (config.GlobalBuffs.Contains(bufftype))
 			{
-				globalbuffs.Remove(bufftype);
+				config.GlobalBuffs.Remove(bufftype);
+				config.Write(configPath);
 				args.Player.SendSuccessMessage("{0} has been removed from the global permabuffs.", TShock.Utils.GetBuffName(bufftype));
 			}
 			else
 			{
-				globalbuffs.Add(bufftype);
-				args.Player.SendSuccessMessage("{0} has been activated as a global permabuff!", TShock.Utils.GetBuffName(bufftype));
+				config.GlobalBuffs.Add(bufftype);
+                config.Write(configPath);
+                args.Player.SendSuccessMessage("{0} has been activated as a global permabuff!", TShock.Utils.GetBuffName(bufftype));
 			}
 		}
 
 		private void PBClear(CommandArgs args)
 		{
-			if (args.Parameters.Count == 1 && (args.Parameters[0] == "*" || args.Parameters[0].Equals("all", StringComparison.CurrentCultureIgnoreCase)))
+			TSPlayer target = args.Player;
+			TSPlayer sender = args.Player;
+			bool dontPermaClear = false;
+			bool cleanAll = false;
+			bool cleanPerma = false;
+			bool wrongUsage = true;
+			int defaultDuration = 60;
+			Dictionary<int, int[]> buffListsToClean = new Dictionary<int, int[]>();
+
+			if (args.Parameters.Any(e => e.Equals("-all")))
+				cleanAll = true;
+
+			else if (args.Parameters.Any(e => e.Equals("-pb")))
 			{
+				if (!sender.HasPermission("pb.setduration")|| !int.TryParse(args.Parameters[args.Parameters.IndexOf("-pb") + 1], out defaultDuration)){
+                    sender.SendErrorMessage("Invalid usage:");
+                    sender.SendErrorMessage("{0}clearbuffs -s - Disables your permabuffs\n" +
+					"{0}clearbuffs -s -pb [default duration] - Disables your permabuffs and cleans them, but sets every other buff that is not a permabuff to a specified duration\n" +
+					"{0}clearbuffs (*/all) - Disables everyones permabuffs\n" +
+					"{0}clearbuffs (*/all) -all - Disables everyones permabuffs and cleans everyones buff slots\n" +
+					"{0}clearbuffs (*/all) -all -x - Cleans everyones buff slots only", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+                    return;
+                }
+
+                if (defaultDuration < 1 || defaultDuration > int.MaxValue)
+                {
+                    args.Player.SendErrorMessage("Invalid duration!");
+                    return;
+                }
+
+                cleanPerma = true;
+			}
+			
+			if (args.Parameters.Any(e => e.Equals("-x")))
+				dontPermaClear = true;
+
+            if (args.Parameters.Count > 0 && (args.Parameters[0] == "*" || args.Parameters[0].Equals("all", StringComparison.CurrentCultureIgnoreCase)))
+			{
+				wrongUsage = false;
+
 				if (!args.Player.HasPermission("pb.clear"))
 				{
 					args.Player.SendErrorMessage("You do not have permission to clear all permabuffs.");
 					return;
 				}
-				foreach (KeyValuePair<int, DBInfo> kvp in DB.PlayerBuffs)
+				target = TSPlayer.All;
+
+				if (!dontPermaClear)
 				{
-					kvp.Value.bufflist.Clear();
-					DB.ClearDB();
-				}
-				args.Player.SendSuccessMessage("All permabuffs have been deactivated for all players.");
-				if (!args.Silent)
-				{
-					TSPlayer.All.SendInfoMessage("{0} has deactivated all permabuffs!", args.Player.Account.Name);
-				}
+                    foreach (KeyValuePair<int, DBInfo> kvp in DB.PlayerBuffs)
+                    {
+						int[] bufflist = new int[kvp.Value.bufflist.Count];
+						kvp.Value.bufflist.CopyTo(bufflist);
+						if (cleanPerma && kvp.Key != 0)
+							buffListsToClean.Add(kvp.Key, bufflist);
+                        kvp.Value.bufflist.Clear();
+                        DB.ClearDB();
+                    }
+                    args.Player.SendSuccessMessage("All permabuffs have been deactivated for all players.");
+                    if (!args.Silent)
+                    {
+                        TSPlayer.All.SendInfoMessage("{0} has deactivated all permabuffs!", args.Player.Account.Name);
+                    }
+                }
+
 			}
-			else
-			{
-				if (!args.Player.RealPlayer)
+			else if (args.Parameters.Any(e => e.Equals("-s")))
+            {
+                wrongUsage = false;
+
+                if (!args.Player.RealPlayer)
 				{
 					args.Player.SendErrorMessage("You must be in-game to use this command.");
 					return;
 				}
-				DB.PlayerBuffs[args.Player.Account.ID].bufflist.Clear();
+				if (!dontPermaClear)
+				{
+					int[] bufflist = new int[DB.PlayerBuffs[args.Player.Account.ID].bufflist.Count];
+					DB.PlayerBuffs[args.Player.Account.ID].bufflist.CopyTo(bufflist);
 
-				DB.ClearPlayerBuffs(args.Player.Account.ID);
-				args.Player.SendSuccessMessage("All of your permabuffs have been deactivated.");
+                    if (cleanPerma && args.Player.Account.ID != 0)
+						buffListsToClean.Add(args.Player.Account.ID, bufflist);
+					DB.PlayerBuffs[args.Player.Account.ID].bufflist.Clear();
+					DB.ClearPlayerBuffs(args.Player.Account.ID);
+					args.Player.SendSuccessMessage("All of your permabuffs have been deactivated.");
+				}
 			}
-		}
+
+			if (cleanPerma)
+			{
+                wrongUsage = false;
+				
+                foreach (KeyValuePair<int, int[]> kvp in buffListsToClean)
+				{
+					TSPlayer player = TSPlayer.FindByNameOrID(TShock.UserAccounts.GetUserAccountByID(kvp.Key).Name)[0];
+					List<int> buffListToKeep = new();
+					
+					int i = 0;
+                    foreach (int buff in player.TPlayer.buffType)
+					{
+                        if (!kvp.Value.Contains(buff) && buff != 0)
+							buffListToKeep.Add(buff);
+
+						player.TPlayer.buffType[i] = 0;
+					}
+                    NetMessage.SendData((int)PacketTypes.PlayerBuff, -1, -1, null, player.Index );
+
+                    foreach (int buff in buffListToKeep)
+                    {
+						player.SetBuff(buff, defaultDuration);
+					}
+					
+				}
+				target.SendSuccessMessage("Successfully cleaned permabuffs!");
+				sender.SendSuccessMessage("You successfully cleaned {0} permabuffs!", (target == TSPlayer.All ? "everyones" : "your"));
+				return;
+			}
+
+			if (cleanAll)
+			{
+                wrongUsage = false;
+
+                if (target == TSPlayer.All)
+				{
+					foreach (var player in TShock.Players)
+					{
+						if (player == null)
+							continue;
+
+						for (int i = 0; i < player.TPlayer.buffType.Length; i++)
+						{
+							player.TPlayer.buffType[i] = 0;
+							player.TPlayer.buffTime[i] = 0;
+						}
+						NetMessage.SendData((int)PacketTypes.PlayerBuff, -1, -1, null, player.Index);
+					}
+
+				}
+
+				else
+				{
+					for (int i = 0; i < target.TPlayer.buffType.Length; i++)
+					{
+						target.TPlayer.buffType[i] = 0;
+						target.TPlayer.buffTime[i] = 0;
+					}
+
+					NetMessage.SendData((int)PacketTypes.PlayerBuff, -1, -1, null, target.Index);
+				}
+                target.SendSuccessMessage("Successfully cleaned every buff!");
+                sender.SendSuccessMessage("You successfully cleaned {0} buffs!", (target == TSPlayer.All ? "everyones" : "your"));
+                return;
+            }
+
+
+			if (wrongUsage)
+			{
+                sender.SendErrorMessage("Invalid usage:");
+                sender.SendErrorMessage("{0}clearbuffs -s - Disables your permabuffs\n" +
+                "{0}clearbuffs -s -pb [default duration] - Disables your permabuffs and cleans them, but sets every other buff that is not a permabuff to a specified duration\n" +
+                "{0}clearbuffs (*/all) - Disables everyones permabuffs\n" +
+				"{0}clearbuffs (*/all) -all - Disables everyones permabuffs and cleans everyones buff slots\n" +
+                "{0}clearbuffs (*/all) -all -x - Cleans everyones buff slots only", (args.Silent ? TShock.Config.Settings.CommandSilentSpecifier : TShock.Config.Settings.CommandSpecifier));
+            }
+        }
 		#endregion
 	}
 }
