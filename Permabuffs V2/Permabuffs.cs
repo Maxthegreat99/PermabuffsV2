@@ -181,6 +181,8 @@ namespace Permabuffs_V2
 
 				foreach (int buff in config.GlobalBuffs)
 				{
+					if (TShock.Players[i].HasPermission("pb.ignoregb"))
+						continue;
 					TShock.Players[i].SetBuff(buff, 18000);
 				}
 
@@ -910,7 +912,7 @@ namespace Permabuffs_V2
 
 			else if (args.Parameters.Any(e => e.Equals("-pb")))
 			{
-				if (!sender.HasPermission("pb.setduration")|| !int.TryParse(args.Parameters[args.Parameters.IndexOf("-pb") + 1], out defaultDuration)){
+				if (!sender.HasPermission("pb.setduration") || !int.TryParse(args.Parameters[args.Parameters.IndexOf("-pb") + 1], out defaultDuration)){
                     sender.SendErrorMessage("Invalid usage:");
                     sender.SendErrorMessage("{0}clearbuffs -s - Disables your permabuffs\n" +
 					"{0}clearbuffs -s -pb [default duration] - Disables your permabuffs and cleans them, but sets every other buff that is not a permabuff to a specified duration\n" +
