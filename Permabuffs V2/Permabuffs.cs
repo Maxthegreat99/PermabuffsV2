@@ -181,7 +181,7 @@ namespace Permabuffs_V2
 
 				foreach (int buff in config.GlobalBuffs)
 				{
-					if (TShock.Players[i].HasPermission("pb.ignoregb"))
+					if (TShock.Players[i].HasPermission("pb.ignoreglobal"))
 						continue;
 					TShock.Players[i].SetBuff(buff, 18000);
 				}
