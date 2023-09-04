@@ -29,13 +29,13 @@ Updated version of Permabuffs plugin
 ### Config:
 - `globalbuffs`: The list of globalbuffs active in the server.
 - `buffgroups`:
-- `groupName`: The name of the buff group.
-- `groupPerm`: The permission needed to use permabuffs in this group. (Note that the permission is "pb." + the groupPerm.)
-- `isperma`: If set to false, the buff will still be given, but will not be auto-renewed (useful for "pet" buffs and for use to replace /buff, if players shouldn't have access to every buff).
-- `buffIDs`: The list of buff IDs to include in this group.​
+- - `groupName`: The name of the buff group.
+- - `groupPerm`: The permission needed to use permabuffs in this group. (Note that the permission is "pb." + the groupPerm.)
+- - `isperma`: If set to false, the buff will still be given, but will not be auto-renewed (useful for "pet" buffs and for use to replace /buff, if players shouldn't have access to every buff).
+- - `buffIDs`: The list of buff IDs to include in this group.​
 - `regionbuffs`:
-- `regionName`: The name of the region to apply the buffs in.
-- `buffs`: A list of pairs of buff IDs and duration (in seconds).​
+- - `regionName`: The name of the region to apply the buffs in.
+- - `buffs`: A list of pairs of buff IDs and duration (in seconds).​
 
 ## Permissions: 
 - `pb.use`: Allows a player to use /permabuff and /clearbuffs (on themselves)
