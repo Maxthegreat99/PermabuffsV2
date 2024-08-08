@@ -18,7 +18,7 @@ Updated version of Permabuffs plugin
 ### Commands:
 - `/permabuff [-g] <buff name or id>/[buff group name]`: Activates the specified buff, `-g` parameter can be used to activate the buffs from a specified buff group the player has access to.
 - `/buffcheck <player>`: Gives a list of permabuffs that the specified player has active.
-- `/gpermabuff <buff name or id> <player>`: Activates the specified buff for the specified player.
+- `/gpermabuff <buff name or id> <player>`: Activates/desactivates the specified buff for the specified player.
 - `/gpermabuff -g <"list"/buff group name> <player>`: gives the buffs from the specified group to the targetted player, the "list" parameter can be used to list the sender's available buff groups.  
 - `/regionbuff <add/del> <region name> <buff name or ID> [duration in seconds]`: adds/deletes the specified buff to the targetted region, the `[duration]` specifies how long the buff will last when given/renewed for the player.
 - `/regionbuff -g <add/del> <region name> <group name> [duration in seconds]`: adds/deletes every buff from a specified group for the targetted region, the `[duration]` parameter applies for every buff added to the region within the group.
